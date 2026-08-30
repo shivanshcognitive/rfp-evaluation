@@ -200,7 +200,14 @@ code {
 # ANTHROPIC_API_KEY, then OPENAI_API_KEY -- see that module for details).
 try:
     for _key in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
-        if _key in st.secrets and not os.environ.get(_key):
+        if _key in st.secrets:
+            # Always re-sync from the CURRENT secret value on every rerun --
+            # never skip this because os.environ already has a value. On
+            # Streamlit Cloud, the same process reruns the script many times
+            # without a full restart; os.environ persists across reruns, so
+            # a prior guard here (only set if not already set) would freeze
+            # on the FIRST secret value seen and never notice you rotated
+            # the key afterward, unless the app happened to fully reboot.
             os.environ[_key] = st.secrets[_key]
 except Exception:
     pass  # no secrets.toml present locally -- fine, the app will prompt for a key below
@@ -302,6 +309,37 @@ with st.sidebar:
 
     has_key = owner_key_configured or bool(session_api_key)
 
+    with st.expander("Advanced (optional)"):
+        model_choice = st.text_input(
+            "Model override (optional)",
+            value="",
+            placeholder="e.g. meta-llama/llama-3.3-70b-instruct:free",
+            help="Leave blank to use the provider's default model "
+                 "(openai/gpt-4o-mini for OpenRouter). OpenRouter's default "
+                 "model is a PAID one billed against your OpenRouter credit "
+                 "balance -- if you're getting an APIStatusError / 402 on a "
+                 "fresh account with $0 balance, that's almost certainly why. "
+                 "Paste in a genuine free-tier model (any ':free'-suffixed "
+                 "model from openrouter.ai/models) here to test with zero "
+                 "cost instead.",
+        )
+        max_tokens_choice = st.number_input(
+            "Max tokens per LLM call",
+            min_value=50, max_value=2000, value=800, step=50,
+            help="Caps the LLM's OUTPUT length for each supplier's scorecard. "
+                 "Default (800) is enough for a normal 5-criterion response. "
+                 "Lowering this deliberately (e.g. to 100-150) truncates the "
+                 "model's JSON mid-response on a REAL call -- a reliable way "
+                 "to demo tools/validation_tool.py's error-handling path "
+                 "(missing criteria / parse-failure warnings) on live output, "
+                 "rather than only via demo_validation_error_case.py's "
+                 "hand-crafted example.",
+        )
+        if max_tokens_choice < 400:
+            st.caption("⚠️ This is low enough to likely truncate a real response — "
+                        "expect validation warnings on this run. Good for a demo, "
+                        "not for a run you want clean results from.")
+
     st.divider()
     st.subheader("Past runs")
     runs = list_runs()
@@ -401,6 +439,9 @@ with tab_input:
         # the owner's key mirrored in os.environ at startup, if present.
         eval_kwargs = {"api_key": session_api_key, "provider": provider_hint} \
             if not owner_key_configured else {}
+        eval_kwargs["max_tokens"] = max_tokens_choice
+        if model_choice.strip():
+            eval_kwargs["model"] = model_choice.strip()
 
         with st.spinner(f"Running agentic evaluation workflow ({engine} engine)..."):
             if engine == "LangGraph":

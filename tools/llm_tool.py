@@ -208,15 +208,25 @@ def resolve_provider(model: str = None, api_key: str = None, base_url: str = Non
 
 def _is_retryable(exc: Exception) -> bool:
     """True for rate-limit / transient-server errors worth retrying.
-    Checked defensively (by status code / class name substring) rather
-    than importing every provider SDK's specific exception classes, since
-    both openai and anthropic expose slightly different hierarchies
-    across versions."""
+    Checked defensively (by status code / class name) rather than
+    importing every provider SDK's specific exception classes, since both
+    openai and anthropic expose slightly different hierarchies across
+    versions.
+
+    IMPORTANT: only matches on the SPECIFIC subclass names for rate-limit
+    and server errors -- never on the generic base class ("APIStatusError"
+    for openai, "APIError" for anthropic). That base class is what gets
+    raised for errors that have no more specific subclass -- including
+    401 (bad key), 402 (insufficient credits/payment required), 403
+    (forbidden), and 404 (model not found). None of those are fixed by
+    retrying; matching the base class name here would silently waste time
+    retrying a permanent failure before it finally surfaces to the caller.
+    """
     status = getattr(exc, "status_code", None)
     if status in (429, 500, 502, 503, 529):
         return True
     name = type(exc).__name__
-    return "RateLimit" in name or "APIStatusError" in name or "InternalServerError" in name
+    return "RateLimitError" in name or "InternalServerError" in name or "APIConnectionError" in name
 
 
 def _with_retries(fn, *args, **kwargs):

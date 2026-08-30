@@ -153,8 +153,19 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 # or
 export OPENAI_API_KEY="sk-..."
 ```
-OpenRouter is recommended: one key works across many models, including
-free-tier options, so trying this costs nothing.
+OpenRouter is recommended: one key works across many providers/models. **One
+important nuance:** the default model this project uses
+(`openai/gpt-4o-mini`) is a *paid* model on OpenRouter, billed against your
+OpenRouter credit balance — it is not one of OpenRouter's free-tier
+options. If you have a $0 balance, calls to it fail with a permanent
+`APIStatusError` (commonly a 402 "insufficient credits"), and no amount of
+retrying fixes that. To actually run this at zero cost, either add a small
+credit balance to your OpenRouter account, or override the model to a
+genuine free one (any current `:free`-suffixed model at
+[openrouter.ai/models](https://openrouter.ai/models), e.g.
+`meta-llama/llama-3.3-70b-instruct:free`) via the "Model override" field in
+the app's Advanced settings, or by passing `model=...` directly to either
+engine.
 
 ### Local run
 ```bash
@@ -399,7 +410,36 @@ identical inputs/outputs shape.
 
 ---
 
-## 11. Rubric traceability
+## 11. Troubleshooting: "APIStatusError" / app crashes on Evaluate
+
+If Streamlit Cloud shows a crash with `openai.APIStatusError` and a
+redacted message, this is almost always one of two things:
+
+1. **No/insufficient OpenRouter credit balance.** The default model
+   (`openai/gpt-4o-mini`) is paid, not free — see the note in §3 above.
+   Fix: add a small credit balance to your OpenRouter account, **or** use
+   the "Model override" field in the sidebar's Advanced settings to enter
+   a genuine free model (e.g. `meta-llama/llama-3.3-70b-instruct:free` —
+   check [openrouter.ai/models](https://openrouter.ai/models) for the
+   current list, since free-tier model IDs rotate).
+2. **An invalid/expired API key.** Re-check the key in Streamlit Secrets
+   or the sidebar field.
+
+**To see the actual (unredacted) error:** on Streamlit Cloud, click
+"Manage app" (bottom right) → the deployed app's logs show the real
+message the UI redacts for you.
+
+**Why retries don't help here, and won't loop forever either:**
+`tools/llm_tool._is_retryable()` only retries genuine transient errors —
+rate limits (429) and server errors (500/502/503/529). Client errors like
+401 (bad key), 402 (payment required), 403, and 404 (bad model name) fail
+immediately, on the first attempt, with no wasted retry delay — retrying
+a permanent failure can never succeed, so there's no reason to wait for
+it.
+
+---
+
+## 12. Rubric traceability
 
 | Rubric area | Where it's addressed |
 |---|---|
